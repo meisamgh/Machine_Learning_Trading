@@ -1,1 +1,900 @@
 
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jun  8 16:45:49 2021
+
+@author: User1
+"""
+from alpha101_functions import *
+import talib
+import ta
+import pandas as pd
+import numpy as np
+from pykalman import KalmanFilter
+from arch.univariate import  arch_model
+from hmmlearn.hmm import GaussianHMM
+#from fcmeans import FCM
+from sklearn.cluster import KMeans
+
+class Alpha_101(object):
+
+    def __init__(self, data, lags = 1):
+        
+        data.index.names = ['date', 'tickers']
+        
+        data.dropna(axis=1, inplace=True)
+        
+        data['adv20'] = data.rolling(20).Volume.mean()
+        ohlcv = ['Open', 'High', 'Low', 'Close', 'Volume']
+        data = data.join(data.groupby('date')[ohlcv].rank(axis=1, pct=True), rsuffix='_rank')
+
+        self.lags = lags
+        self.open = data.Open.unstack()
+        self.high = data.High.unstack()
+        self.low = data.Low.unstack()
+        self.close = data.Close.unstack()
+        self.volume = data.Volume.unstack()
+        self.vwap = self.open.add(self.high).add(self.low).add(self.close).div(4)
+        
+        self.adv20 = self.volume.rolling(20).mean()
+        data['returns'] = data.Close.pct_change()
+        data['ret_fwd'] = data.Close.shift(-1)
+        data.dropna( 0 , inplace = True)
+        self.returns = data.returns.unstack()
+            
+    
+    def alpha001(self):
+        self.close[self.returns < 0] = ts_std(self.returns, 20)
+        return rank(ts_argmax(power(self.close, 2), 5)).mul(-.5).stack().swaplevel()
+    
+    
+    def alpha002(self):
+        s1 = rank(ts_delta(log(self.volume), 2))
+        s2 = rank((self.close / self.open) - 1)
+        alpha = -ts_corr(s1, s2, 6)
+        return alpha.stack('tickers').swaplevel().replace([-np.inf, np.inf], np.nan)
+    
+    
+    def alpha003(self):
+        return (-ts_corr(rank(self.open), rank(self.volume), 10)
+                .stack('tickers')
+                .swaplevel()
+                .replace([-np.inf, np.inf], np.nan))
+    
+    
+    def alpha004(self):
+        return (-ts_rank(rank(self.low), 9)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha005(self):
+        return (rank(self.open.sub(ts_mean(self.vwap, 10)))
+                .mul(rank(self.close.sub(self.vwap)).mul(-1).abs())
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha006(self):
+        return (-ts_corr(self.open, self.volume, 10)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha007(self):
+        delta7 = ts_delta(self.close, 7)
+        return (-ts_rank(abs(delta7), 60)
+                .mul(sign(delta7))
+                .where(self.adv20<self.volume, -1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha008(self):
+        return (-(rank(((ts_sum(self.open, 5) * ts_sum(self.returns, 5)) -
+                           ts_lag((ts_sum(self.open, 5) * ts_sum(self.returns, 5)), 10))))
+               .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha009(self):
+        close_diff = ts_delta(self.close, 1)
+        alpha = close_diff.where(ts_min(close_diff, 5) > 0,
+                                 close_diff.where(ts_max(close_diff, 5) < 0,
+                                                  -close_diff))
+        return (alpha
+                .stack('tickers')
+                .swaplevel())
+    
+    def alpha010(self):
+                
+        close_diff = ts_delta(self.close, 1)
+        alpha = close_diff.where(ts_min(close_diff, 4) > 0,
+                                 close_diff.where(ts_min(close_diff, 4) > 0,
+                                                  -close_diff))
+    
+        return (rank(alpha)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha011(self):
+    
+        return (rank(ts_max(self.vwap.sub(self.close), 3))
+                .add(rank(ts_min(self.vwap.sub(self.close), 3)))
+                .mul(rank(ts_delta(self.volume, 3)))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha012(self):
+        return (sign(ts_delta(self.volume, 1)).mul(-ts_delta(self.close, 1))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha013(self):
+        return (-rank(ts_cov(rank(self.close), rank(self.volume), 5))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha014(self):
+        alpha = -rank(ts_delta(self.returns, 3)).mul(ts_corr(self.open, self.volume, 10)
+                                          .replace([-np.inf,
+                                                    np.inf],
+                                                   np.nan))
+        return (alpha
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha015(self):
+        alpha = (-ts_sum(rank(ts_corr(rank(self.high), rank(self.volume), 3)
+                              .replace([-np.inf, np.inf], np.nan)), 3))
+        return (alpha.stack('tickers').swaplevel())
+    
+    def alpha016(self):
+        return (-rank(ts_cov(rank(self.high), rank(self.volume), 5))
+                .stack('tickers')
+                .swaplevel())
+    
+    def alpha017(self):
+        adv20 = ts_mean(self.volume, 20)
+        return (-rank(ts_rank(self.close, 10))
+                .mul(rank(ts_delta(ts_delta(self.close, 1), 1)))
+                .mul(rank(ts_rank(self.volume.div(adv20), 5)))
+                .stack('tickers')
+                .swaplevel())
+    
+    def alpha018(self):
+        return (-rank(ts_std(self.close.sub(self.open).abs(), 5)
+                      .add(self.close.sub(self.open))
+                      .add(ts_corr(self.close, self.open, 10)
+                           .replace([-np.inf,
+                                     np.inf],
+                                    np.nan)))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha019(self):
+        return (-sign(ts_delta(self.close, 7) + ts_delta(self.close, 7))
+                .mul(1 + rank(1 + ts_sum(self.returns, 250)))
+                .stack('tickers')
+                .swaplevel())
+    
+    def alpha020(self):
+    
+        return (rank(self.open - ts_lag(self.high, 1))
+                .mul(rank(self.open - ts_lag(self.close, 1)))
+                .mul(rank(self.open - ts_lag(self.low, 1)))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    def alpha021(self):
+        sma2 = ts_mean(self.close, 2)
+        sma8 = ts_mean(self.close, 8)
+        std8 = ts_std(self.close, 8)
+    
+        cond_1 = sma8.add(std8) < sma2
+        cond_2 = sma8.add(std8) > sma2
+        cond_3 = self.volume.div(ts_mean(self.volume, 20)) < 1
+    
+        val = np.ones_like(self.close)
+        alpha = pd.DataFrame(np.select(condlist=[cond_1, cond_2, cond_3],
+                                       choicelist=[-1, 1, -1], default=1),
+                             index=self.close.index,
+                             columns=self.close.columns)
+    
+        return (alpha.stack('tickers').swaplevel())
+    
+    
+    def alpha022(self):
+        return (ts_delta(ts_corr(self.high, self.volume, 5).replace([-np.inf,np.inf],np.nan), 5)
+                .mul(rank(ts_std(self.close, 20)))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha023(self):
+        return (ts_delta(self.high, 2)
+                .mul(-1)
+                .where(ts_mean(self.high, 20) < self.high, 0)
+                .stack('tickers')
+                .swaplevel())
+    
+    def alpha024(self):
+        cond = ts_delta(ts_mean(self.close, 100), 100) / ts_lag(self.close, 100) <= 0.05
+    
+        return (self.close.sub(ts_min(self.close, 100)).mul(-1).where(cond, -ts_delta(self.close, 3))
+                .stack('tickers')
+                .swaplevel())
+    
+    def alpha025(self):
+        return (rank(-self.returns.mul(self.adv20)
+                     .mul(self.vwap)
+                     .mul(self.high.sub(self.close)))
+                .stack('tickers')
+                .swaplevel())
+    
+    def alpha026(self):
+        return (ts_max(ts_corr(ts_rank(self.volume, 5), 
+                               ts_rank(self.high, 5), 5)
+                       .replace([-np.inf, np.inf], np.nan), 3)
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha027(self):
+        cond = rank(ts_mean(ts_corr(rank(self.volume),
+                                    rank(self.vwap), 6), 2))
+        alpha = cond.notnull().astype(float)
+        return (alpha.where(cond <= 0.5, -alpha)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha028(self):
+        return (scale(ts_corr(self.adv20, self.low, 5)
+                      .replace([-np.inf, np.inf], 0)
+                      .add(self.high.add(self.low).div(2).sub(self.close)))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha029(self):
+        return (ts_min(rank(rank(scale(log(ts_sum(rank(rank(-rank(ts_delta((self.close - 1), 5)))), 2))))), 5)
+                .add(ts_rank(ts_lag((-1 * self.returns), 6), 5))
+                .stack('tickers')
+                .swaplevel())
+    
+    def alpha030(self):
+        close_diff = ts_delta(self.close, 1)
+        return (rank(sign(close_diff)
+                     .add(sign(ts_lag(close_diff, 1)))
+                     .add(sign(ts_lag(close_diff, 2))))
+                .mul(-1).add(1)
+                .mul(ts_sum(self.volume, 5))
+                .div(ts_sum(self.volume, 20))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha031(self):
+    
+        return (rank(rank(rank(ts_weighted_mean(rank(rank(ts_delta(self.close, 10))).mul(-1), 10))))
+                .add(rank(ts_delta(self.close, 3).mul(-1)))
+                .add(sign(scale(ts_corr(self.adv20, self.low, 12)
+                                .replace([-np.inf, np.inf],
+                                         np.nan))))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha032(self):
+        return (scale(ts_mean(self.close, 7).sub(self.close))
+                .add(20 * scale(ts_corr(self.vwap,
+                                        ts_lag(self.close, 5), 230)))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha033(self):
+        return (rank(self.open.div(self.close).mul(-1).add(1).mul(-1))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    
+    def alpha034(self):
+        return (rank(rank(ts_std(self.returns, 2).div(ts_std(self.returns, 5))
+                          .replace([-np.inf, np.inf],
+                                   np.nan))
+                     .mul(-1)
+                     .sub(rank(ts_delta(self.close, 1)))
+                     .add(2))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha035(self):
+        return (ts_rank(self.volume, 32)
+                .mul(1 - ts_rank(self.close.add(self.high).sub(self.low), 16))
+                .mul(1 - ts_rank(self.returns, 32))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha036(self):
+        return (rank(ts_corr(self.close.sub(self.open), ts_lag(self.volume, 1), 15)).mul(2.21)
+                .add(rank(self.open.sub(self.close)).mul(.7))
+                .add(rank(ts_rank(ts_lag(-self.returns, 6), 5)).mul(0.73))
+                .add(rank(abs(ts_corr(self.vwap, self.adv20, 6))))
+                .add(rank(ts_mean(self.close, 200).sub(self.open).mul(self.close.sub(self.open))).mul(0.6))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha037(self):
+        return (rank(ts_corr(ts_lag(self.open.sub(self.close), 1), self.close, 200))
+                .add(rank(self.open.sub(self.close)))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    
+    def alpha038(self):
+        return (rank(ts_rank(self.open, 10))
+                .mul(rank(self.close.div(self.open).replace([-np.inf, np.inf], np.nan)))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha039(self):
+        return (rank(ts_delta(self.close, 7).mul(rank(ts_weighted_mean(self.volume.div(self.adv20), 9)).mul(-1).add(1))).mul(-1)
+                .mul(rank(ts_mean(self.returns, 250).add(1)))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha040(self):
+        return (rank(ts_std(self.high, 10))
+                .mul(ts_corr(self.high, self.volume, 10))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha041(self):
+        return (power(self.high.mul(self.low), 0.5)
+                .sub(self.vwap)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha042(self):
+        return (rank(self.vwap.sub(self.close))
+                .div(rank(self.vwap.add(self.close)))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha043(self):
+        return (ts_rank(self.volume.div(self.adv20), 20)
+                .mul(ts_rank(ts_delta(self.close, 7).mul(-1), 8))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha044(self):
+        return (ts_corr(self.high, rank(self.volume), 5)
+                .replace([-np.inf, np.inf], np.nan)
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha045(self):
+        return (rank(ts_mean(ts_lag(self.close, 5), 20))
+                .mul(ts_corr(self.close, self.volume, 2)
+                     .replace([-np.inf, np.inf], np.nan))
+                .mul(rank(ts_corr(ts_sum(self.close, 5),
+                                  ts_sum(self.close, 20), 2)))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha046(self):
+        cond = ts_lag(ts_delta(self.close, 10), 10).div(10).sub(ts_delta(self.close, 10).div(10))
+        alpha = pd.DataFrame(-np.ones_like(cond),
+                             index=self.close.index,
+                             columns=self.close.columns)
+        alpha[cond.isnull()] = np.nan
+        return (cond.where(cond > 0.25,
+                           -alpha.where(cond < 0,
+                           -ts_delta(self.close, 1)))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha047(self):
+        return (rank(self.close.pow(-1)).mul(self.volume).div(self.adv20)
+                .mul(self.high.mul(rank(self.high.sub(self.close))
+                           .div(ts_mean(self.high, 5)))
+                     .sub(rank(ts_delta(self.vwap, 5))))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha049(self):
+        cond = (ts_delta(ts_lag(self.close, 10), 10).div(10)
+                .sub(ts_delta(self.close, 10).div(10)) >= -0.1 * self.close)
+        return (-ts_delta(self.close, 1)
+                .where(cond, 1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha050(self):
+        return (ts_max(rank(ts_corr(rank(self.volume),
+                                    rank(self.vwap), 5)), 5)
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha051(self):
+        cond = (ts_delta(ts_lag(self.close, 10), 10).div(10)
+                .sub(ts_delta(self.close, 10).div(10)) >= -0.05 * self.close)
+        return (-ts_delta(self.close, 1)
+                .where(cond, 1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha052(self):
+        return (ts_delta(ts_min(self.low, 5), 5)
+                .mul(rank(ts_sum(self.returns, 240)
+                          .sub(ts_sum(self.returns, 20))
+                          .div(220)))
+                .mul(ts_rank(self.volume, 5))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha053(self):
+        inner = (self.close.sub(self.low)).add(1e-6)
+        return (ts_delta(self.high.sub(self.close)
+                         .mul(-1).add(1)
+                         .div(self.close.sub(self.low)
+                              .add(1e-6)), 9)
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha054(self):
+        return (self.low.sub(self.close).mul(self.open.pow(5)).mul(-1)
+                .div(self.low.sub(self.high).replace(0, -0.0001).mul(self.close ** 5))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha055(self):
+        return (ts_corr(rank(self.close.sub(ts_min(self.low, 12))
+                             .div(ts_max(self.high, 12).sub(ts_min(self.low, 12))
+                                  .replace(0, 1e-6))),
+                        rank(self.volume), 6)
+                .replace([-np.inf, np.inf], np.nan)
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha057(self):
+        return (self.close.sub(self.vwap.add(1e-5))
+                .div(ts_weighted_mean(rank(ts_argmax(self.close, 30)))).mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha060(self):
+        return (scale(rank(self.close.mul(2).sub(self.low).sub(self.high)
+                           .div(self.high.sub(self.low).replace(0, 1e-5))
+                           .mul(self.volume))).mul(2)
+                .sub(scale(rank(ts_argmax(self.close, 10)))).mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha061(self):
+        return (rank(self.vwap.sub(ts_min(self.vwap, 16)))
+                .lt(rank(ts_corr(self.vwap, ts_mean(self.volume, 180), 18)))
+                .astype(int)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha062(self):
+        return (rank(ts_corr(self.vwap, ts_sum(self.adv20, 22), 9))
+                .lt(rank(
+                    rank(self.open).mul(2))
+                    .lt(rank(self.high.add(self.low).div(2))
+                        .add(rank(self.high))))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha064(self):
+        w = 0.178404
+        return (rank(ts_corr(ts_sum(self.open.mul(w).add(self.low.mul(1 - w)), 12),
+                             ts_sum(ts_mean(self.volume, 120), 12), 16))
+                .lt(rank(ts_delta(self.high.add(self.low).div(2).mul(w)
+                                   .add(self.vwap.mul(1 - w)), 3)))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha065(self):
+        w = 0.00817205
+        return (rank(ts_corr(self.open.mul(w).add(self.vwap.mul(1 - w)),
+                             ts_mean(ts_mean(self.volume, 60), 9), 6))
+                .lt(rank(self.open.sub(ts_min(self.open, 13))))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha066(self):
+        w = 0.96633
+        return (rank(ts_weighted_mean(ts_delta(self.vwap, 4), 7))
+                .add(ts_rank(ts_weighted_mean(self.low.mul(w).add(self.low.mul(1 - w))
+                                               .sub(self.vwap)
+                                               .div(self.open.sub(self.high.add(self.low).div(2)).add(1e-3)), 11), 7))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha068(self):
+        w = 0.518371
+        return (ts_rank(ts_corr(rank(self.high), rank(ts_mean(self.volume, 15)), 9), 14)
+                .lt(rank(ts_delta(self.close.mul(w).add(self.low.mul(1 - w)), 1)))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha071(self):
+        s1 = (ts_rank(ts_weighted_mean(ts_corr(ts_rank(self.close, 3),
+                                               ts_rank(ts_mean(self.volume, 180), 12), 18), 4), 16))
+        s2 = (ts_rank(ts_weighted_mean(rank(self.low.add(self.open).
+                                            sub(self.vwap.mul(2)))
+                                       .pow(2), 16), 4))
+        return (s1.where(s1 > s2, s2)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha072(self):
+        return (rank(ts_weighted_mean(ts_corr(self.high.add(self.low).div(2), ts_mean(self.volume, 40), 9), 10))
+                .div(rank(ts_weighted_mean(ts_corr(ts_rank(self.vwap, 3), ts_rank(self.volume, 18), 6), 2)))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    
+    def alpha073(self):
+        w = 0.147155
+        s1 = rank(ts_weighted_mean(ts_delta(self.vwap, 5), 3))
+        s2 = (ts_rank(ts_weighted_mean(ts_delta(self.open.mul(w).add(self.low.mul(1 - w)), 2)
+                                       .div(self.open.mul(w).add(self.low.mul(1 - w)).mul(-1)), 3), 16))
+    
+        print(s2)
+        return (s1.where(s1 > s2, s2)
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha074(self):
+        w = 0.0261661
+        return (rank(ts_corr(self.close, ts_mean(ts_mean(self.volume, 30), 37), 15))
+                .lt(rank(ts_corr(rank(self.high.mul(w).add(self.vwap.mul(1 - w))), rank(self.volume), 11)))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha075(self):
+        return (rank(ts_corr(self.vwap, self.volume, 4))
+                .lt(rank(ts_corr(rank(self.low), rank(ts_mean(self.volume, 50)), 12)))
+                .astype(int)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha077(self):
+        s1 = rank(ts_weighted_mean(self.high.add(self.low).div(2).sub(self.vwap), 20))
+        s2 = rank(ts_weighted_mean(ts_corr(self.high.add(self.low).div(2), ts_mean(self.volume, 40), 3), 5))
+        return (s1.where(s1 < s2, s2)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha078(self):
+        w = 0.352233
+        return (rank(ts_corr(ts_sum((self.low.mul(w).add(self.vwap.mul(1 - w))), 19),
+                             ts_sum(ts_mean(self.volume, 40), 19), 6))
+                .pow(rank(ts_corr(rank(self.vwap), rank(self.volume), 5)))
+                .stack('tickers')
+                .swaplevel())
+    
+
+    def alpha081(self):
+        return (rank(log(ts_product(rank(rank(ts_corr(self.vwap,
+                                                      ts_sum(ts_mean(self.volume, 10), 50), 8))
+                                         .pow(4)), 15)))
+                .lt(rank(ts_corr(rank(self.vwap), rank(self.volume), 5)))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha083(self):
+        s = self.high.sub(self.low).div(ts_mean(self.close, 5))
+    
+        return (rank(rank(ts_lag(s, 2))
+                     .mul(rank(rank(self.volume)))
+                     .div(s).div(self.vwap.sub(self.close).add(1e-3)))
+                .stack('tickers')
+                .swaplevel()
+                .replace((np.inf, -np.inf), np.nan))
+    
+    
+    def alpha084(self):
+        return (rank(power(ts_rank(self.vwap.sub(ts_max(self.vwap, 15)), 20),
+                           ts_delta(self.close, 6)))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha085(self):
+        w = 0.876703
+        return (rank(ts_corr(self.high.mul(w).add(self.close.mul(1 - w)), ts_mean(self.volume, 30), 10))
+                .pow(rank(ts_corr(ts_rank(self.high.add(self.low).div(2), 4),
+                                  ts_rank(self.volume, 10), 7)))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha086(self):
+    
+        return (ts_rank(ts_corr(self.close, ts_mean(ts_mean(self.volume, 20), 15), 6), 20)
+                .lt(rank(self.close.sub(self.vwap)))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha088(self):
+        s1 = (rank(ts_weighted_mean(rank(self.open)
+                                    .add(rank(self.low))
+                                    .sub(rank(self.high))
+                                    .add(rank(self.close)), 8)))
+        s2 = ts_rank(ts_weighted_mean(ts_corr(ts_rank(self.close, 8),
+                                              ts_rank(ts_mean(self.volume, 60), 20), 8), 6), 2)
+    
+        return (s1.where(s1 < s2, s2)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha092(self):
+    
+        p1 = ts_rank(ts_weighted_mean(self.high.add(self.low).div(2).add(self.close).lt(self.low.add(self.open)), 15), 18)
+        p2 = ts_rank(ts_weighted_mean(ts_corr(rank(self.low), rank(ts_mean(self.volume, 30)), 7), 6), 6)
+    
+        return (p1.where(p1<p2, p2)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha094(self):
+        return (rank(self.vwap.sub(ts_min(self.vwap, 11)))
+                .pow(ts_rank(ts_corr(ts_rank(self.vwap, 20),
+                                     ts_rank(ts_mean(self.volume, 60), 4), 18), 2))
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha095(self):
+        return (rank(self.open.sub(ts_min(self.open, 12)))
+                .lt(ts_rank(rank(ts_corr(ts_mean(self.high.add(self.low).div(2), 19),
+                                         ts_sum(ts_mean(self.volume, 40), 19), 13).pow(5)), 12))
+                .astype(int)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha096(self):
+        s1 = ts_rank(ts_weighted_mean(ts_corr(rank(self.vwap), rank(self.volume), 10), 4), 8)
+        s2 = ts_rank(ts_weighted_mean(ts_argmax(ts_corr(ts_rank(self.close, 7),
+                                                        ts_rank(ts_mean(self.volume, 60), 10), 10), 12), 14), 13)
+        return (s1.where(s1 > s2, s2)
+                .mul(-1)
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha098(self):
+        adv5 = ts_mean(self.volume, 5)
+        adv15 = ts_mean(self.volume, 15)
+        return (rank(ts_weighted_mean(ts_corr(self.vwap, ts_mean(adv5, 26), 4), 7))
+                .sub(rank(ts_weighted_mean(ts_rank(ts_argmin(ts_corr(rank(self.open),
+                                                                     rank(adv15), 20), 8), 6))))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha099(self):
+        return ((rank(ts_corr(ts_sum((self.high.add(self.low).div(2)), 19),
+                              ts_sum(ts_mean(self.volume, 60), 19), 8))
+                 .lt(rank(ts_corr(self.low, self.volume, 6)))
+                 .mul(-1))
+                .stack('tickers')
+                .swaplevel())
+    
+    
+    def alpha101(self):
+        return (self.close.sub(self.open).div(self.high.sub(self.low).add(1e-3))
+                .stack('tickers')
+                .swaplevel())
+    
+
+
+    def calculate(self):
+        
+        alpha = pd.DataFrame()
+        
+        alpha['alpha001']=self.alpha001()
+        alpha['alpha002']=self.alpha002()
+        alpha['alpha003']=self.alpha003()
+        alpha['alpha004']=self.alpha004()
+        alpha['alpha005']=self.alpha005()
+        alpha['alpha006']=self.alpha006()
+        alpha['alpha007']=self.alpha007()
+        alpha['alpha008']=self.alpha008()
+        alpha['alpha009']=self.alpha009()
+        alpha['alpha010']=self.alpha010()
+        alpha['alpha011']=self.alpha011()
+        alpha['alpha012']=self.alpha012()
+        alpha['alpha013']=self.alpha013()
+        alpha['alpha014']=self.alpha014()
+        alpha['alpha015']=self.alpha015()
+        alpha['alpha016']=self.alpha016()
+        alpha['alpha017']=self.alpha017()
+        alpha['alpha018']=self.alpha018()
+        alpha['alpha019']=self.alpha019()
+        alpha['alpha020']=self.alpha020()
+        alpha['alpha021']=self.alpha021()
+        alpha['alpha022']=self.alpha022()
+        alpha['alpha023']=self.alpha023()
+        alpha['alpha024']=self.alpha024()
+        alpha['alpha025']=self.alpha025()
+        alpha['alpha026']=self.alpha026()
+        alpha['alpha027']=self.alpha027()
+        alpha['alpha028']=self.alpha028()
+        alpha['alpha029']=self.alpha029()
+        alpha['alpha030']=self.alpha030()
+        alpha['alpha031']=self.alpha031()
+        alpha['alpha032']=self.alpha032()
+        alpha['alpha033']=self.alpha033()
+        alpha['alpha034']=self.alpha034()
+        alpha['alpha035']=self.alpha035()
+        alpha['alpha036']=self.alpha036()
+        alpha['alpha037']=self.alpha037()
+        alpha['alpha038']=self.alpha038()
+        alpha['alpha039']=self.alpha039()
+        alpha['alpha040']=self.alpha040()
+        alpha['alpha041']=self.alpha041()
+        alpha['alpha042']=self.alpha042()
+        alpha['alpha043']=self.alpha043()
+        alpha['alpha044']=self.alpha044()
+        alpha['alpha045']=self.alpha045()
+        alpha['alpha046']=self.alpha046()
+        alpha['alpha047']=self.alpha047()
+        alpha['alpha049']=self.alpha049()
+        alpha['alpha050']=self.alpha050()
+        alpha['alpha051']=self.alpha051()
+        alpha['alpha052']=self.alpha052()
+        alpha['alpha053']=self.alpha053()
+        alpha['alpha054']=self.alpha054()
+        alpha['alpha055']=self.alpha055()
+        alpha['alpha057']=self.alpha057()
+        alpha['alpha060']=self.alpha060()
+        alpha['alpha061']=self.alpha061()
+        alpha['alpha062']=self.alpha062()
+        alpha['alpha064']=self.alpha064()
+        alpha['alpha065']=self.alpha065()
+        alpha['alpha066']=self.alpha066()
+        alpha['alpha068']=self.alpha068()
+        alpha['alpha071']=self.alpha071()
+        #alpha['alpha072']=self.alpha072()
+        alpha['alpha073']=self.alpha073()
+        alpha['alpha074']=self.alpha074()
+        alpha['alpha075']=self.alpha075()
+        alpha['alpha077']=self.alpha077()
+        alpha['alpha078']=self.alpha078()
+        alpha['alpha081']=self.alpha081()
+        alpha['alpha083']=self.alpha083()
+        alpha['alpha084']=self.alpha084()
+        alpha['alpha085']=self.alpha085()
+        alpha['alpha086']=self.alpha086()
+        alpha['alpha088']=self.alpha088()
+        alpha['alpha092']=self.alpha092()
+        alpha['alpha094']=self.alpha094()
+        alpha['alpha095']=self.alpha095()
+        alpha['alpha096']=self.alpha096()
+        #alpha['alpha098']=self.alpha098()
+        alpha['alpha099']=self.alpha099()
+        alpha['alpha101']=self.alpha101()
+        # alpha['alpha102']=self.alpha102()
+        # alpha['alpha103']=self.alpha103()
+        # alpha['alpha104']=self.alpha104()
+        # alpha['alpha105']=self.alpha105()
+
+
+        result = pd.concat(
+        [
+	    alpha['alpha001'],alpha['alpha002'], alpha['alpha003'], alpha['alpha004'],
+        alpha['alpha005'],alpha['alpha006'], alpha['alpha007'], alpha['alpha008'],
+        alpha['alpha009'],alpha['alpha010'], alpha['alpha011'], alpha['alpha012'],
+        alpha['alpha013'],alpha['alpha014'], alpha['alpha015'], alpha['alpha016'],
+        alpha['alpha017'],alpha['alpha018'], alpha['alpha019'], alpha['alpha020'],
+        alpha['alpha021'],alpha['alpha022'], alpha['alpha023'], alpha['alpha024'],
+        alpha['alpha025'],alpha['alpha026'], alpha['alpha027'], alpha['alpha028'],
+        alpha['alpha029'],alpha['alpha030'], alpha['alpha031'], alpha['alpha032'],
+        alpha['alpha033'],alpha['alpha034'], alpha['alpha035'], alpha['alpha036'],
+        alpha['alpha037'],alpha['alpha038'], alpha['alpha039'], alpha['alpha040'],
+        alpha['alpha041'],alpha['alpha042'], alpha['alpha043'], alpha['alpha044'],
+        alpha['alpha045'],alpha['alpha046'], alpha['alpha047'], alpha['alpha049'],
+        alpha['alpha050'],alpha['alpha051'], alpha['alpha052'], alpha['alpha053'],
+        alpha['alpha054'],alpha['alpha055'], alpha['alpha057'], alpha['alpha060'],
+        alpha['alpha061'],alpha['alpha062'], alpha['alpha064'], alpha['alpha065'],
+        alpha['alpha066'],alpha['alpha068'], alpha['alpha071'], #alpha['alpha072'],
+        alpha['alpha073'],alpha['alpha074'], alpha['alpha075'], alpha['alpha077'],
+        alpha['alpha078'],alpha['alpha081'], alpha['alpha083'], alpha['alpha084'],
+        alpha['alpha085'],alpha['alpha086'], alpha['alpha088'], alpha['alpha092'],
+        alpha['alpha094'],alpha['alpha095'], alpha['alpha096'],# alpha['alpha098'],
+        alpha['alpha099'],alpha['alpha101']] , 1)
+
+        features = result.shift(self.lags)
+        last_observation = result.iloc[[-1]]
+
+        return (features, last_observation)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
