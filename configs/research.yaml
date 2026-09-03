@@ -1,0 +1,16 @@
+target:
+  horizon: 5
+  volatility_window: 20
+signal:
+  long_rank: 0.90
+  short_rank: 0.10
+  minimum_alpha: 0.10
+risk:
+  gross_limit: 1.0
+  max_weight: 0.02
+  require_positive_oos_sharpe: true
+costs:
+  round_trip_bps: 10
+validation:
+  embargo_days: 5
+  random_seed: 42
