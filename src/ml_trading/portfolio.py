@@ -53,7 +53,7 @@ def construct_weights(
         raise ValueError("gross_limit and max_weight must be positive")
     result = pd.Series(0.0, index=expected_alpha.index, name="target_weight")
 
-    for date, alpha_day in expected_alpha.groupby(level="date"):
+    for _date, alpha_day in expected_alpha.groupby(level="date"):
         idx = alpha_day.index
         allowed = pd.Series(True, index=idx)
         if signals is not None:
