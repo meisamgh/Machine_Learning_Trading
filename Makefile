@@ -7,6 +7,6 @@ test:
 	python -m pytest
 
 lint:
-	ruff check .
+	ruff check src tests
 
 validate: lint test
