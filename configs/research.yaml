@@ -1,16 +1,75 @@
+data:
+  point_in_time_universe_required: true
+  min_price: 5.0
+  min_adv_dollars: 1000000
+  adv_window: 20
+  min_history: 60
+
 target:
   horizon: 5
   volatility_window: 20
+  beta_window: 60
+  execution: next_open
+  exit: horizon_close
+  price_basis: corporate_action_adjusted
+
+features:
+  winsor_quantile: 0.01
+  cross_sectional_transform: zscore
+  sector_neutralize: false
+
+model:
+  name: ridge
+  random_seed: 42
+  param_grid:
+    - {alpha: 0.1}
+    - {alpha: 1.0}
+    - {alpha: 10.0}
+  optional_challengers: [elasticnet, hist_gb, xgboost, lightgbm]
+
+validation:
+  min_train_years: 3
+  validation_years: 1
+  test_years: 1
+  embargo_days: 5
+  strictly_oos_predictions: true
+
 signal:
   long_rank: 0.90
   short_rank: 0.10
-  minimum_alpha: 0.10
-risk:
+  minimum_net_edge: 0.001
+  compare_alpha_and_costs_in_raw_return_space: true
+
+portfolio:
   gross_limit: 1.0
+  net_target: 0.0
   max_weight: 0.02
-  require_positive_oos_sharpe: true
+  max_sector_gross: 0.25
+  max_abs_beta: 0.10
+  max_one_way_turnover: 0.50
+  overlapping_cohorts: true
+
 costs:
-  round_trip_bps: 10
-validation:
-  embargo_days: 5
-  random_seed: 42
+  commission_bps: 1.0
+  half_spread_bps: 3.0
+  slippage_bps: 2.0
+  impact_bps_at_1pct_adv: 5.0
+  borrow_bps_annual: 100.0
+  max_participation: 0.05
+  stress_multipliers: [1.0, 1.5, 2.0]
+
+research_gate:
+  min_oos_sharpe: 0.0
+  min_mean_rank_ic: 0.0
+  max_drawdown: -0.30
+  min_deflated_sharpe_probability: 0.90
+  min_fill_fraction: 0.80
+
+monitoring:
+  max_prediction_psi: 0.25
+  max_feature_psi: 0.25
+  max_drawdown: -0.15
+  min_rolling_sharpe: -0.50
+  min_rolling_rank_ic: -0.02
+  min_fill_fraction: 0.80
+  breach_action: NO_TRADE
