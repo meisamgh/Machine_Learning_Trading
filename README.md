@@ -1,135 +1,178 @@
-# Machine Learning Trading Research
+# Machine Learning Trading
 
-Leakage-aware Python primitives for offline financial machine-learning research. The repository
-keeps the original exploratory notebooks as legacy material, then exposes a small tested package for
-reviewed factors, forward-alpha targets, purged date splits, and rank-plus-magnitude trading
-signals.
+A leakage-aware, cost-aware research and paper-trading stack for daily cross-sectional machine
+learning strategies. The original notebooks remain as legacy experiments, but the supported surface
+is the tested `ml_trading` package.
 
-This is a research codebase, not a live trading system. It does not include broker execution,
-position sizing, capital allocation, or a claim of profitable performance.
+**This repository does not claim profitability.** Its purpose is to make it difficult to accidentally
+turn leakage, survivorship bias, unrealistic fills, or repeated backtest selection into a fake alpha
+claim.
 
-## What This Repo Contains
+## What is implemented
 
-```text
-Machine_Learning_Trading/
-├── src/ml_trading/        # tested research primitives
-├── tests/                 # unit tests for factors, targets, validation, and signals
-├── configs/research.yaml  # default research-contract assumptions
-├── docs/legacy_audit.md   # audit of the historical notebooks
-└── *.ipynb                # legacy exploratory notebooks
-```
+- point-in-time universe filtering with fail-closed membership;
+- corporate-action-consistent adjusted OHLC handling;
+- dataset fingerprints for experiment/model lineage;
+- a causal feature library spanning momentum, reversal, volatility, intraday/range, relative-return,
+  and liquidity/volume features plus reviewed Alpha-style factors;
+- per-date winsorization, rank/z-score transforms, and optional sector neutralization;
+- next-open to horizon-close continuous residual targets;
+- purged, embargoed expanding walk-forward validation;
+- fold-local imputation/scaling and validation-only hyperparameter selection;
+- Ridge, ElasticNet, sklearn HistGradientBoosting, plus optional XGBoost/LightGBM challengers;
+- strictly out-of-sample prediction assembly and daily rank IC;
+- conversion from standardized model output back to expected raw residual return;
+- economic signal gating: expected alpha must exceed estimated costs + required edge;
+- constrained long/short weights with gross, net, name, sector, beta, and turnover controls;
+- overlapping holding-period cohorts;
+- costs for commissions, spread, slippage, market impact, short borrow, and ADV-based partial fills;
+- Sharpe/drawdown/fill/IC metrics, Deflated-Sharpe-style evidence and CSCV-style PBO diagnostics;
+- explicit offline research gates that default to NO_TRADE when evidence is missing or weak;
+- a stateful `PaperBroker`, target-vs-actual reconciliation, drift metrics, and fail-closed monitoring;
+- unit tests and GitHub Actions CI.
 
-The reusable package is intentionally narrow:
-
-- `factors.py` computes a reviewed subset of causal Alpha-style features.
-- `targets.py` builds continuous forward residual targets aligned to next-open execution.
-- `validation.py` provides year-based purged train, validation, and test splits.
-- `signals.py` converts predictions into `LONG`, `SHORT`, or `NO_TRADE` decisions only when both
-  rank and absolute-alpha filters pass.
-
-## Research Contract
-
-- Features must be known at or before close `t`.
-- Entry is assumed at open `t+1`.
-- The default exit is close `t+5`.
-- Targets are continuous risk-adjusted residual returns, not future absolute prices.
-- Test data is not used for preprocessing, feature selection, thresholds, or early stopping.
-- A high cross-sectional rank is not enough: predicted alpha must also clear an economic threshold.
-- Failed data, model, validation, or research gates should default to `NO_TRADE`.
-
-## Architecture
+## Research contract
 
 ```text
-validated panel
-      |
-trusted causal factors
-      |
-continuous residual target
-      |
-purged train / validation / test split
-      |
-out-of-sample predictions
-      |
-rank + magnitude policy
-      |
-LONG / SHORT / NO_TRADE
+point-in-time panel + membership
+          |
+          v
+corporate-action-consistent prices
+          |
+          v
+causal feature library (known by close t)
+          |
+          v
+cross-sectional processing on date t only
+          |
+          v
+open[t+1] -> close[t+5] residual target
+          |
+          v
+purged walk-forward train / validation / test
+          |
+          v
+strictly OOS predictions
+          |
+          v
+expected raw alpha - expected cost - edge requirement
+          |
+          v
+constrained target weights
+          |
+          v
+overlapping-cohort cost/capacity backtest
+          |
+          v
+research evidence gate
+          |
+          v
+paper broker + reconciliation + monitoring
+          |
+          v
+NO_TRADE on any material gate/health failure
 ```
 
-## Quick Start
+The research code intentionally stops at a broker protocol and paper broker. A real broker requires a
+separate authenticated adapter, broker-specific order semantics, exchange calendars, and operational
+controls; credentials must never be committed to Git.
 
-```bash
-make setup
-make validate
-```
-
-Or install and test directly:
+## Install
 
 ```bash
 python -m venv .venv
 . .venv/bin/activate
 python -m pip install -e ".[dev]"
-python -m pytest
-ruff check .
-```
-
-## Example
-
-```python
-from ml_trading import SignalPolicy, continuous_residual_target, make_signals
-from ml_trading.factors import compute_trusted_factors
-
-# panel is a MultiIndex DataFrame indexed by date and symbol with OHLCV columns.
-features = compute_trusted_factors(panel)
-target = continuous_residual_target(panel, horizon=5)
-
-# predictions is a Series indexed by date and symbol.
-signals = make_signals(predictions, SignalPolicy(minimum_alpha=0.10))
-```
-
-## Data Expectations
-
-Most functions expect a sorted pandas `MultiIndex` panel with `date` and `symbol` levels. The core
-OHLCV columns used by the current primitives are:
-
-- `open`
-- `high`
-- `low`
-- `close`
-- `adjusted_close`
-- `volume`
-
-An optional `market_return` column enables beta-adjusted residual targets. Without it, the target
-falls back to volatility-adjusted forward return.
-
-## Validation
-
-The test suite covers the contract-level behavior that matters most for a research foundation:
-
-- factors preserve the input panel index and use only reviewed formulas;
-- targets align prediction date, next-open entry, and forward exit without lookahead preprocessing;
-- date splits purge overlapping label intervals and apply an embargo;
-- signal generation requires both cross-sectional rank and absolute predicted alpha.
-
-Run the full local check with:
-
-```bash
 make validate
 ```
 
-## Legacy Notebooks
+For optional tree-boosting challengers:
 
-The notebooks are retained for auditability and historical context. They are not treated as the
-validated implementation surface. See [`docs/legacy_audit.md`](docs/legacy_audit.md) for the main
-methodological risks and why the tested package separates reusable primitives from exploratory
-analysis.
+```bash
+python -m pip install -e ".[boosting,dev]"
+```
 
-## Boundary
+## Canonical panel
 
-The larger end-to-end model comparison, cost-aware overlapping-cohort backtest, and offline evidence
-gate live in the companion `Alpha-Quant-Research-v2` checkout. This repository is the clean reusable
-research-primitives layer and deliberately avoids duplicating a second backtest engine.
+Most functions consume a sorted `pandas.MultiIndex` DataFrame indexed by `date, symbol` with:
+
+```text
+open, high, low, close, adjusted_close, volume
+```
+
+Optional columns include `market_return` and explicit adjusted OHLC fields. If only
+`adjusted_close` exists, the package derives a consistent adjustment factor and applies it to O/H/L,
+rather than mixing adjusted and raw prices.
+
+For a real historical equity experiment, supply point-in-time membership including delisted names.
+Missing membership is treated as not eligible.
+
+## End-to-end API
+
+```python
+from ml_trading import ResearchConfig, run_research_pipeline
+
+result = run_research_pipeline(
+    panel,
+    membership=historical_membership,
+    config=ResearchConfig(model_name="ridge"),
+)
+
+print(result.walk_forward.fold_report)
+print(result.metrics)
+print(result.gate_passed, result.gate_failures)
+```
+
+The default system can legitimately return zero trades. If forecasts do not clear expected costs or a
+research/monitoring gate fails, forcing a position would be a bug.
+
+## Models
+
+Start simple. Ridge is the default falsification baseline. Compare challengers under exactly the same
+walk-forward folds, cost assumptions, universe, target, and portfolio constraints. `xgboost` and
+`lightgbm` are optional dependencies so the deterministic research spine remains lightweight.
+
+Model preprocessing is fit inside each historical fold. The test block does not influence imputation,
+scaling, feature selection, thresholds, early stopping, or hyperparameter choice.
+
+## Backtest realism
+
+`CostModel` includes:
+
+```text
+commission
+half spread
+slippage
+ADV-dependent market impact
+short borrow
+ADV participation cap / partial fills
+```
+
+Signals generated after close `t` enter at adjusted open `t+1`. A horizon-5 strategy creates a new
+1/5-sized cohort each signal day and holds each cohort through its configured exit close, so overlapping
+positions are represented rather than pretending every prediction owns the entire book.
+
+## Evidence and monitoring
+
+Evaluate predictive quality and trading economics separately. Useful outputs include daily rank IC,
+net Sharpe, drawdown, fill fraction, cost stress, and stability across walk-forward folds. When many
+variants are tried, report the number of trials and use the multiple-testing diagnostics in
+`evaluation.py`.
+
+After offline research, use `PaperBroker` and `reconcile_positions` to exercise portfolio state before
+any external broker integration. `monitoring_snapshot` checks drift, rolling IC, fill quality, Sharpe,
+and drawdown; material breaches recommend `NO_TRADE`.
+
+See [`docs/production_readiness.md`](docs/production_readiness.md) for the research-to-live checklist
+and [`docs/legacy_audit.md`](docs/legacy_audit.md) for the historical notebook risks.
+
+## Legacy notebooks
+
+The notebooks are retained for auditability and ideas only. They are not the validated implementation
+surface and their historical performance is not accepted as evidence.
 
 ## Disclaimer
 
-This project is for education and offline research. Financial markets are noisy, historical tests are
-easy to overfit, and no output from this repository should be treated as investment advice.
+For education and research only. Financial markets are noisy and non-stationary, transaction costs and
+capacity can erase apparent alpha, and backtests are easy to overfit. Nothing in this repository is
+investment advice or a guarantee of future performance.

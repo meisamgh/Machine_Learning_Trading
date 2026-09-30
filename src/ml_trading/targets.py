@@ -35,7 +35,8 @@ def continuous_residual_target(
     """Volatility-scaled market-residual alpha at signal date t.
 
     Entry is adjusted open[t+1], exit is adjusted close[t+horizon]. Beta and volatility use trailing
-    data only. If ``market_return`` is unavailable, the target is volatility-adjusted forward return.
+    data only. If ``market_return`` is unavailable, the target is volatility-adjusted forward
+    return.
     """
     panel = panel.sort_index()
     px = adjusted_price_panel(panel)
@@ -54,7 +55,6 @@ def continuous_residual_target(
         broadcast_market = pd.Series(
             panel.index.get_level_values("date").map(market_by_date), index=panel.index, dtype=float
         )
-
         covariance = stock_return.groupby(level="symbol").transform(
             lambda x: x.rolling(beta_window, min_periods=min(30, beta_window)).cov(
                 broadcast_market.loc[x.index]
@@ -67,7 +67,6 @@ def continuous_residual_target(
             panel.index.get_level_values("date").map(market_variance_by_date), index=panel.index
         )
         beta = covariance / market_variance.replace(0, np.nan)
-
         future_market_by_date = (
             (1 + market_by_date.shift(-1))
             .rolling(horizon)

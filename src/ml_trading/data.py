@@ -128,9 +128,12 @@ def liquidity_eligibility(
         lambda x: x.rolling(adv_window, min_periods=adv_window).mean()
     )
     history = panel.groupby(level="symbol").cumcount() + 1
-    return ((px["px_close"] >= min_price) & (adv >= min_adv_dollars) & (history >= min_history)).rename(
-        "eligible"
+    eligible = (
+        (px["px_close"] >= min_price)
+        & (adv >= min_adv_dollars)
+        & (history >= min_history)
     )
+    return eligible.rename("eligible")
 
 
 def attach_adv(panel: pd.DataFrame, window: int = 20) -> pd.DataFrame:
