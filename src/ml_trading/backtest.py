@@ -18,7 +18,7 @@ class CostModel:
     borrow_bps_annual: float = 100.0
     max_participation: float = 0.05
 
-    def scaled(self, multiplier: float) -> "CostModel":
+    def scaled(self, multiplier: float) -> CostModel:
         """Scale monetary friction assumptions while leaving capacity unchanged."""
         if multiplier <= 0:
             raise ValueError("cost multiplier must be positive")
