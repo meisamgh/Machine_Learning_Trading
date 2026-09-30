@@ -1,14 +1,12 @@
-.PHONY: setup lint test validate
+.PHONY: setup test lint validate
 
 setup:
-	python3 -m venv .venv
-	.venv/bin/pip install -e '.[dev]'
-
-lint:
-	.venv/bin/ruff check src tests
+	python -m pip install -e ".[dev]"
 
 test:
-	.venv/bin/pytest
+	python -m pytest
+
+lint:
+	ruff check src tests
 
 validate: lint test
-	git diff --check
